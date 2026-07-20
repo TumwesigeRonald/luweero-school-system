@@ -18,44 +18,28 @@ export default function SettingsClient({ initial }: { initial: SchoolSettings })
       body: JSON.stringify(form),
     });
     if (res.ok) {
-      setMsg("✅ Saved! Refresh the page to see changes across the app.");
+      setMsg("✅ Saved! Settings updated successfully.");
     } else {
-      setMsg("❌ Failed to save");
+      setMsg("❌ Failed to save settings.");
     }
     setSaving(false);
   }
 
-  const fields: [keyof SchoolSettings, string, string?][] = [
-    ["schoolName", "School Name"],
-    ["schoolAddress", "P.O Box / Address"],
-    ["schoolPhone", "Phone"],
-    ["schoolEmail", "Email"],
-    ["schoolMotto", "Motto"],
-    [
-      "activeTerm",
-      "Active Term (e.g. Term 1, Term 2, Term 3)",
-      "Term 1",
-    ],
-    [
-      "academicYear",
-      "Academic Year",
-      "2026",
-    ],
-    [
-      "schoolLogoUrl",
-      "Logo URL (paste an image link, e.g. from Imgur)",
-      "https://i.imgur.com/xyz.png",
-    ],
-    [
-      "signupCode",
-      "Signup Code (share with teachers so they can self-register — leave blank to disable)",
-      "e.g. LCSS2026",
-    ],
+  const fields: { key: keyof SchoolSettings; label: string; placeholder?: string }[] = [
+    { key: "schoolName", label: "School Name" },
+    { key: "schoolAddress", label: "P.O Box / Address" },
+    { key: "schoolPhone", label: "Phone" },
+    { key: "schoolEmail", label: "Email" },
+    { key: "schoolMotto", label: "Motto" },
+    { key: "activeTerm", label: "Active Term", placeholder: "e.g. Term 1, Term 2, Term 3" },
+    { key: "academicYear", label: "Academic Year", placeholder: "e.g. 2026" },
+    { key: "schoolLogoUrl", label: "Logo URL", placeholder: "https://i.imgur.com/xyz.png" },
+    { key: "signupCode", label: "Signup Code", placeholder: "e.g. LCSS2026" },
   ];
 
   return (
-    <form onSubmit={save} className="bg-white rounded-xl shadow-sm p-6 max-w-2xl space-y-4">
-      {fields.map(([key, label, placeholder]) => (
+    <form onSubmit={save} className="bg-white rounded-xl shadow-sm p-6 max-w-2xl space-y-4 border border-slate-200">
+      {fields.map(({ key, label, placeholder }) => (
         <div key={key}>
           <label className="block text-sm font-medium text-slate-700 mb-1">
             {label}
@@ -65,10 +49,11 @@ export default function SettingsClient({ initial }: { initial: SchoolSettings })
             value={form[key] || ""}
             onChange={(e) => setForm({ ...form, [key]: e.target.value })}
             placeholder={placeholder}
-            className="w-full border rounded-lg px-3 py-2 border-slate-300"
+            className="w-full border rounded-lg px-3 py-2 border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
           />
         </div>
       ))}
+
       {form.schoolLogoUrl && (
         <div>
           <div className="text-xs text-slate-500 mb-1">Logo preview</div>
@@ -76,30 +61,20 @@ export default function SettingsClient({ initial }: { initial: SchoolSettings })
           <img
             src={form.schoolLogoUrl}
             alt="School logo"
-            className="h-24 border border-slate-200 rounded p-1 bg-white"
+            className="h-24 border border-slate-200 rounded p-1 bg-white object-contain"
           />
         </div>
       )}
-      {msg && <div className="text-sm">{msg}</div>}
+
+      {msg && <div className="text-sm font-medium">{msg}</div>}
+
       <button
+        type="submit"
         disabled={saving}
-        className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2 font-medium disabled:opacity-50"
+        className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2 font-medium disabled:opacity-50 transition-colors"
       >
         {saving ? "Saving..." : "Save Settings"}
       </button>
-      <p className="text-xs text-slate-500 pt-3 border-t">
-        💡 To use your own school logo: upload the image to{" "}
-        <a
-          href="https://imgur.com"
-          target="_blank"
-          rel="noreferrer"
-          className="text-emerald-700 underline"
-        >
-          imgur.com
-        </a>
-        , right-click the uploaded image → &ldquo;Copy image address&rdquo;, then paste
-        the link above.
-      </p>
     </form>
   );
 }
