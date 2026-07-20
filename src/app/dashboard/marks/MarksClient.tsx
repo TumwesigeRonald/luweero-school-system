@@ -21,9 +21,13 @@ export default function MarksClient({
   classes: Class[];
   terms: Term[];
 }) {
-  const [classId, setClassId] = useState<string>(classes[0]?.id ? String(classes[0].id) : "");
+  const [classId, setClassId] = useState<string>(
+    classes[0]?.id ? String(classes[0].id) : "1"
+  );
   const activeTerm = terms.find((t) => t.isActive) ?? terms[0];
-  const [termId, setTermId] = useState<string>(activeTerm ? String(activeTerm.id) : "");
+  const [termId, setTermId] = useState<string>(
+    activeTerm?.id ? String(activeTerm.id) : "1"
+  );
   const [subjectId, setSubjectId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
@@ -37,10 +41,7 @@ export default function MarksClient({
     if (!classId || !termId) return;
     setLoading(true);
 
-    const currentClassObj = classes.find((c) => String(c.id) === String(classId));
-    const rawClassName = currentClassObj?.name ?? "";
-
-    fetch(`/api/marks?classId=${classId}&termId=${termId}&className=${encodeURIComponent(rawClassName)}`)
+    fetch(`/api/marks?classId=${classId}&termId=${termId}`)
       .then((r) => r.json())
       .then((d) => {
         setStudents(d.students ?? []);
@@ -48,22 +49,23 @@ export default function MarksClient({
         setComponents(d.components ?? []);
         setMarks(d.marks ?? []);
         setSelectedClass(d.class ?? null);
-        if (d.subjects?.[0] && !subjectId) {
-          setSubjectId(String(d.subjects[0].id));
-        } else if (
-          d.subjects?.length > 0 &&
-          !d.subjects.some((s: Subject) => String(s.id) === subjectId)
-        ) {
-          setSubjectId(String(d.subjects[0].id));
+
+        if (d.subjects && d.subjects.length > 0) {
+          // If current subject selection is invalid or empty, pick first available
+          if (!subjectId || !d.subjects.some((s: Subject) => String(s.id) === subjectId)) {
+            setSubjectId(String(d.subjects[0].id));
+          }
+        } else {
+          setSubjectId("");
         }
       })
+      .catch((err) => console.error("Error fetching marks data:", err))
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId, termId]);
 
   const currentSubject = useMemo(
-    () => subjects.find((s) => String(s.id) === subjectId) ?? null,
-    [subjects, subjectId],
+    () => subjects.find((s) => String(s.id) === subjectId) ?? subjects[0] ?? null,
+    [subjects, subjectId]
   );
 
   const marksBySubjectStudentComp = useMemo(() => {
@@ -76,7 +78,7 @@ export default function MarksClient({
     studentId: number,
     subjId: number,
     component: string,
-    value: string,
+    value: string
   ) {
     const key = `${subjId}-${studentId}-${component}`;
     setSaveStates((s) => ({ ...s, [key]: "saving" }));
@@ -100,7 +102,7 @@ export default function MarksClient({
               m.studentId === studentId &&
               m.subjectId === subjId &&
               m.component === component
-            ),
+            )
         );
         if (value === "") return filtered;
         return [
@@ -125,7 +127,7 @@ export default function MarksClient({
             delete n[key];
             return n;
           }),
-        1000,
+        1000
       );
     } catch {
       setSaveStates((s) => ({ ...s, [key]: "error" }));
@@ -139,7 +141,7 @@ export default function MarksClient({
       const p2 = marksBySubjectStudentComp[`${subj.id}-${studentId}-P2`];
       const final = computeALevelFinal(
         p1 ? Number(p1.score) : null,
-        p2 ? Number(p2.score) : null,
+        p2 ? Number(p2.score) : null
       );
       if (final == null) return { as: null, fa: null, final: null, grade: "-" };
       const g =
@@ -153,13 +155,13 @@ export default function MarksClient({
     const eot = marksBySubjectStudentComp[`${subj.id}-${studentId}-EOT`];
     const as = computeAS(
       aoi1 ? Number(aoi1.score) : null,
-      aoi2 ? Number(aoi2.score) : null,
+      aoi2 ? Number(aoi2.score) : null
     );
     const fa = computeFA(as);
     const final = computeOLevelFinal(
       aoi1 ? Number(aoi1.score) : null,
       aoi2 ? Number(aoi2.score) : null,
-      eot ? Number(eot.score) : null,
+      eot ? Number(eot.score) : null
     );
     const grade = final != null ? cbcGrade(final).grade : "-";
     return { as, fa, final, grade };
@@ -186,7 +188,7 @@ export default function MarksClient({
             setClassId(e.target.value);
             setSubjectId("");
           }}
-          className="border rounded-lg px-3 py-2 border-slate-300"
+          className="border rounded-lg px-3 py-2 border-slate-300 bg-white"
         >
           {classes.map((c) => (
             <option key={c.id} value={c.id}>
@@ -197,7 +199,7 @@ export default function MarksClient({
         <select
           value={termId}
           onChange={(e) => setTermId(e.target.value)}
-          className="border rounded-lg px-3 py-2 border-slate-300"
+          className="border rounded-lg px-3 py-2 border-slate-300 bg-white"
         >
           {terms.map((t) => (
             <option key={t.id} value={t.id}>
@@ -208,7 +210,7 @@ export default function MarksClient({
         <select
           value={subjectId}
           onChange={(e) => setSubjectId(e.target.value)}
-          className="border rounded-lg px-3 py-2 border-slate-300"
+          className="border rounded-lg px-3 py-2 border-slate-300 bg-white"
           disabled={subjects.length === 0}
         >
           {subjects.map((s) => (
@@ -229,33 +231,37 @@ export default function MarksClient({
         </div>
       ) : !currentSubject ? (
         <div className="text-slate-500 p-8 text-center bg-white rounded-xl shadow-sm">
-          No subjects available for this class level, or you have not been assigned any
-          subjects for this class.
+          No subjects available for this class level.
         </div>
       ) : (
         <>
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3 text-sm">
-            <span className="font-semibold text-emerald-900">
-              {currentSubject.name}
-            </span>
-            {currentSubject.category && (
-              <span className="ml-2 text-xs bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded">
-                {currentSubject.category}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3 text-sm flex items-center justify-between">
+            <div>
+              <span className="font-semibold text-emerald-900">
+                {currentSubject.name}
               </span>
-            )}
-            <span className="ml-3 text-emerald-700">
+              {currentSubject.category && (
+                <span className="ml-2 text-xs bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded">
+                  {currentSubject.category}
+                </span>
+              )}
+            </div>
+            <span className="text-emerald-700 text-xs font-mono">
               Components: {components.join(" · ")}
             </span>
           </div>
-          <div className="bg-white rounded-xl shadow-sm overflow-auto">
+
+          <div className="bg-white rounded-xl shadow-sm overflow-auto border border-slate-200">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600">
+              <thead className="bg-slate-50 text-left text-slate-600 border-b border-slate-200">
                 <tr>
-                  <th className="px-3 py-3 sticky left-0 bg-slate-50">Student</th>
+                  <th className="px-3 py-3 sticky left-0 bg-slate-50 font-semibold">
+                    Student
+                  </th>
                   {components.map((c) => {
                     const cfg = componentInputConfig(c);
                     return (
-                      <th key={c} className="px-3 py-3 text-center">
+                      <th key={c} className="px-3 py-3 text-center font-semibold">
                         {c}
                         <div className="text-[10px] text-slate-400 font-normal">
                           {cfg.hint}
@@ -265,19 +271,21 @@ export default function MarksClient({
                   })}
                   {isCbc && (
                     <>
-                      <th className="px-3 py-3 text-center bg-slate-100">
+                      <th className="px-3 py-3 text-center bg-slate-100 font-semibold">
                         A.S <div className="text-[10px] font-normal">/ 3</div>
                       </th>
-                      <th className="px-3 py-3 text-center bg-slate-100">
+                      <th className="px-3 py-3 text-center bg-slate-100 font-semibold">
                         F.A <div className="text-[10px] font-normal">/ 20</div>
                       </th>
                     </>
                   )}
-                  <th className="px-3 py-3 text-center bg-slate-100">
+                  <th className="px-3 py-3 text-center bg-slate-100 font-semibold">
                     FINAL{" "}
                     <div className="text-[10px] font-normal">/ 100</div>
                   </th>
-                  <th className="px-3 py-3 text-center bg-slate-100">Grade</th>
+                  <th className="px-3 py-3 text-center bg-slate-100 font-semibold">
+                    Grade
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -287,7 +295,7 @@ export default function MarksClient({
                     <tr key={st.id} className="border-t border-slate-100">
                       <td className="px-3 py-2 sticky left-0 bg-white font-medium whitespace-nowrap">
                         {st.fullName}
-                        <div className="text-xs text-slate-400 font-normal">
+                        <div className="text-xs text-slate-400 font-normal font-mono">
                           {st.admissionNo}
                         </div>
                       </td>
@@ -307,16 +315,21 @@ export default function MarksClient({
                               defaultValue={val === "" ? "" : String(val)}
                               key={`${key}-${val}`}
                               onBlur={(e) =>
-                                updateScore(st.id, currentSubject.id, c, e.target.value)
+                                updateScore(
+                                  st.id,
+                                  currentSubject.id,
+                                  c,
+                                  e.target.value
+                                )
                               }
-                              className={`w-16 md:w-20 text-center rounded border px-1 py-2 md:py-1 text-base md:text-sm outline-none ${
+                              className={`w-16 md:w-20 text-center rounded border px-1 py-2 md:py-1 text-base md:text-sm outline-none transition-all ${
                                 state === "saving"
-                                  ? "border-amber-400"
+                                  ? "border-amber-400 bg-amber-50"
                                   : state === "saved"
-                                    ? "border-green-500"
-                                    : state === "error"
-                                      ? "border-red-500"
-                                      : "border-slate-300"
+                                  ? "border-green-500 bg-green-50"
+                                  : state === "error"
+                                  ? "border-red-500 bg-red-50"
+                                  : "border-slate-300"
                               }`}
                             />
                           </td>
@@ -324,15 +337,15 @@ export default function MarksClient({
                       })}
                       {isCbc && (
                         <>
-                          <td className="px-3 py-2 text-center bg-slate-50 text-xs">
+                          <td className="px-3 py-2 text-center bg-slate-50 text-xs font-mono">
                             {stats.as != null ? stats.as.toFixed(2) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-center bg-slate-50 text-xs">
+                          <td className="px-3 py-2 text-center bg-slate-50 text-xs font-mono">
                             {stats.fa != null ? stats.fa.toFixed(2) : "—"}
                           </td>
                         </>
                       )}
-                      <td className="px-3 py-2 text-center font-semibold bg-slate-50">
+                      <td className="px-3 py-2 text-center font-semibold bg-slate-50 font-mono">
                         {stats.final != null ? stats.final.toFixed(1) : "—"}
                       </td>
                       <td className="px-3 py-2 text-center bg-slate-50 font-bold text-emerald-700">
@@ -343,17 +356,6 @@ export default function MarksClient({
                 })}
               </tbody>
             </table>
-          </div>
-          <div className="text-xs text-slate-500 mt-3 space-y-1">
-            <p>
-              💡 <strong>CBC (S1–S4):</strong> Enter AOI1 &amp; AOI2 out of 3, EOT out of
-              80. System auto-calculates A.S (avg), F.A (A.S×20/3), and FINAL (F.A+EOT).
-            </p>
-            <p>
-              💡 <strong>UACE (S5–S6):</strong> Enter Paper 1 &amp; Paper 2 out of 100.
-              Auto-averages to Final.
-            </p>
-            <p>💡 Grades update live as you type. Auto-saves on blur.</p>
           </div>
         </>
       )}
