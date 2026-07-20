@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { classes, students, subjects, marks, terms } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export async function GET(req: Request) {
   try {
@@ -67,12 +67,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Safely verify active or valid term
     const dbTerms = await db.select().from(terms);
     const activeTerm = dbTerms.find((t) => t.isActive) || dbTerms[0];
     const validTermId = activeTerm ? activeTerm.id : 1;
 
-    // Delete record if input is blank
+    // Handle deletion if score is blank
     if (scoreVal === "" || scoreVal === null || scoreVal === undefined) {
       await db
         .delete(marks)
@@ -91,6 +90,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid score" }, { status: 400 });
     }
 
+    // Format to 2 decimal places as standard string
     const formattedScore = numericScore.toFixed(2);
 
     const existing = await db
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       await db
         .update(marks)
         .set({ 
-          score: sql`${formattedScore}::numeric` as any, 
+          score: formattedScore as any, 
           updatedAt: new Date() 
         })
         .where(eq(marks.id, existing[0].id));
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
         subjectId,
         termId: validTermId,
         component,
-        score: sql`${formattedScore}::numeric` as any,
+        score: formattedScore as any,
       });
     }
 
