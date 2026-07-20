@@ -2,15 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Class, Mark, Student, Subject, Term } from "@/db/schema";
-import {
-  cbcGrade,
-  computeAS,
-  computeALevelFinal,
-  computeFA,
-  computeOLevelFinal,
-  uacePrincipalGrade,
-  uaceSubsidiaryGrade,
-} from "@/lib/grading";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -27,7 +18,7 @@ export default function MarksClient({
   const [classId, setClassId] = useState<string>(
     safeClasses[0]?.id ? String(safeClasses[0].id) : "1"
   );
-  
+
   const activeTerm = safeTerms.find((t) => t.isActive) ?? safeTerms[0];
   const [termId, setTermId] = useState<string>(
     activeTerm?.id ? String(activeTerm.id) : "1"
@@ -53,10 +44,10 @@ export default function MarksClient({
       .then((d) => {
         const fetchedStudents = d.students ?? [];
         const fetchedSubjects = d.subjects ?? [];
-        
+
         setStudents(fetchedStudents);
         setSubjects(fetchedSubjects);
-        setComponents(d.components ?? []);
+        setComponents(d.components ?? ["AOI1", "AOI2", "EOT"]);
         setMarks(d.marks ?? []);
         setSelectedClass(d.class ?? null);
 
@@ -97,6 +88,33 @@ export default function MarksClient({
     const key = `${subjId}-${studentId}-${component}`;
     setSaveStates((s) => ({ ...s, [key]: "saving" }));
 
+    // Update local UI immediately so calculations render live
+    const numVal = parseFloat(value);
+    setMarks((prev) => {
+      const filtered = prev.filter(
+        (m) =>
+          !(
+            m.studentId === studentId &&
+            m.subjectId === subjId &&
+            m.component === component
+          )
+      );
+      if (value === "" || isNaN(numVal)) return filtered;
+      return [
+        ...filtered,
+        {
+          id: -Math.floor(Math.random() * 1e6),
+          studentId,
+          subjectId: subjId,
+          termId: Number(termId || 1),
+          component,
+          score: numVal.toFixed(2) as any,
+          enteredBy: null,
+          updatedAt: new Date(),
+        },
+      ];
+    });
+
     try {
       const res = await fetch("/api/marks", {
         method: "POST",
@@ -111,33 +129,6 @@ export default function MarksClient({
       });
 
       if (!res.ok) throw new Error("Save failed");
-
-      const numVal = parseFloat(value);
-
-      setMarks((prev) => {
-        const filtered = prev.filter(
-          (m) =>
-            !(
-              m.studentId === studentId &&
-              m.subjectId === subjId &&
-              m.component === component
-            )
-        );
-        if (value === "" || isNaN(numVal)) return filtered;
-        return [
-          ...filtered,
-          {
-            id: -Math.floor(Math.random() * 1e6),
-            studentId,
-            subjectId: subjId,
-            termId: Number(termId || 1),
-            component,
-            score: numVal.toFixed(2),
-            enteredBy: null,
-            updatedAt: new Date(),
-          },
-        ];
-      });
 
       setSaveStates((s) => ({ ...s, [key]: "saved" }));
       setTimeout(() => {
@@ -158,29 +149,57 @@ export default function MarksClient({
     return isNaN(n) ? null : n;
   }
 
+  // Direct, safe CBC & A-Level calculation logic
   function computeStats(studentId: number, subj: Subject) {
-    const isALevel = selectedClass?.level === "A-LEVEL";
+    const isALevel = selectedClass?.level?.toUpperCase() === "A-LEVEL";
 
     if (isALevel) {
       const p1 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-P1`]);
       const p2 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-P2`]);
-      const final = computeALevelFinal(p1, p2);
-      if (final == null) return { as: null, fa: null, final: null, grade: "-" };
-      const g =
-        subj.category === "SUBSIDIARY" || subj.category === "GENERAL"
-          ? uaceSubsidiaryGrade(final)
-          : uacePrincipalGrade(final);
-      return { as: null, fa: null, final, grade: g.grade };
+      if (p1 == null && p2 == null) return { as: null, fa: null, final: null, grade: "-" };
+      const avg = ((p1 ?? 0) + (p2 ?? 0)) / ((p1 != null ? 1 : 0) + (p2 != null ? 1 : 0));
+      let g = "F";
+      if (avg >= 80) g = "A";
+      else if (avg >= 75) g = "B";
+      else if (avg >= 65) g = "C";
+      else if (avg >= 55) g = "D";
+      else if (avg >= 45) g = "E";
+      else if (avg >= 35) g = "O";
+      return { as: null, fa: null, final: avg, grade: g };
     }
 
+    // O-LEVEL (CBC) Calculation
     const aoi1 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-AOI1`]);
     const aoi2 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-AOI2`]);
     const eot = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-EOT`]);
 
-    const as = computeAS(aoi1, aoi2);
-    const fa = computeFA(as);
-    const final = computeOLevelFinal(aoi1, aoi2, eot);
-    const grade = final != null ? cbcGrade(final).grade : "-";
+    let as: number | null = null;
+    if (aoi1 != null && aoi2 != null) {
+      as = (aoi1 + aoi2) / 2;
+    } else if (aoi1 != null) {
+      as = aoi1;
+    } else if (aoi2 != null) {
+      as = aoi2;
+    }
+
+    const fa = as != null ? (as / 3) * 20 : null;
+
+    let final: number | null = null;
+    if (fa != null && eot != null) {
+      final = fa + (eot / 80) * 80;
+    } else if (fa != null) {
+      final = fa;
+    } else if (eot != null) {
+      final = (eot / 80) * 100;
+    }
+
+    let grade = "-";
+    if (final != null) {
+      if (final >= 80) grade = "A";
+      else if (final >= 65) grade = "B";
+      else if (final >= 45) grade = "C";
+      else grade = "D";
+    }
 
     return { as, fa, final, grade };
   }
@@ -195,7 +214,7 @@ export default function MarksClient({
     return { max: 100, step: "1", hint: "/ 100" };
   }
 
-  const isCbc = selectedClass?.level === "O-LEVEL";
+  const isCbc = selectedClass?.level ? selectedClass.level.toUpperCase() !== "A-LEVEL" : true;
 
   return (
     <div>

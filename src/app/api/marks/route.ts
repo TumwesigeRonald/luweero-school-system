@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { classes, students, subjects, marks, terms } from "@/db/schema";
+import { classes, students, subjects, marks } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 
 export async function GET(req: Request) {
@@ -14,9 +14,8 @@ export async function GET(req: Request) {
     }
 
     const classId = Number(classIdParam);
-    const termId = termIdParam ? Number(termIdParam) : null;
+    const termId = termIdParam ? Number(termIdParam) : 1;
 
-    // 1. Fetch Class
     const classData = await db
       .select()
       .from(classes)
@@ -27,34 +26,25 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Class not found" }, { status: 404 });
     }
 
-    // 2. Fetch Students in Class
     const classStudents = await db
       .select()
       .from(students)
       .where(eq(students.classId, classId));
 
-    // 3. Fetch Subjects for Level (O-LEVEL vs A-LEVEL)
     const levelSubjects = await db
       .select()
       .from(subjects)
       .where(eq(subjects.level, classData.level));
 
-    // 4. Components
     const components =
-      classData.level === "O-LEVEL"
+      classData.level?.toUpperCase() === "O-LEVEL"
         ? ["AOI1", "AOI2", "EOT"]
         : ["P1", "P2"];
 
-    // 5. Fetch Marks
-    let existingMarks: any[] = [];
-    if (termId) {
-      existingMarks = await db
-        .select()
-        .from(marks)
-        .where(eq(marks.termId, termId));
-    } else {
-      existingMarks = await db.select().from(marks);
-    }
+    const existingMarks = await db
+      .select()
+      .from(marks)
+      .where(eq(marks.termId, termId));
 
     return NextResponse.json({
       class: classData,
@@ -66,5 +56,72 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error("GET Marks Error:", error);
     return NextResponse.json({ error: "Failed to fetch data" }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const studentId = Number(body.studentId);
+    const subjectId = Number(body.subjectId);
+    const termId = Number(body.termId || 1);
+    const { component, score } = body;
+
+    if (!studentId || !subjectId || !component) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    if (score === "" || score === null || score === undefined) {
+      await db
+        .delete(marks)
+        .where(
+          and(
+            eq(marks.studentId, studentId),
+            eq(marks.subjectId, subjectId),
+            eq(marks.termId, termId),
+            eq(marks.component, component)
+          )
+        );
+      return NextResponse.json({ success: true });
+    }
+
+    const numericScore = parseFloat(String(score));
+    if (isNaN(numericScore)) {
+      return NextResponse.json({ error: "Invalid score" }, { status: 400 });
+    }
+
+    const formattedScore = String(numericScore.toFixed(2));
+
+    const existing = await db
+      .select()
+      .from(marks)
+      .where(
+        and(
+          eq(marks.studentId, studentId),
+          eq(marks.subjectId, subjectId),
+          eq(marks.termId, termId),
+          eq(marks.component, component)
+        )
+      );
+
+    if (existing.length > 0) {
+      await db
+        .update(marks)
+        .set({ score: formattedScore, updatedAt: new Date() })
+        .where(eq(marks.id, existing[0].id));
+    } else {
+      await db.insert(marks).values({
+        studentId,
+        subjectId,
+        termId,
+        component,
+        score: formattedScore,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Save Mark Error:", error);
+    return NextResponse.json({ error: "Failed to save mark" }, { status: 500 });
   }
 }
