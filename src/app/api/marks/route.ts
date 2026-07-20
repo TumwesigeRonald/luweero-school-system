@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { classes, students, subjects, marks, terms } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 export async function GET(req: Request) {
   try {
@@ -40,7 +40,6 @@ export async function GET(req: Request) {
         ? ["AOI1", "AOI2", "EOT"]
         : ["P1", "P2"];
 
-    // Fetch all marks for these students to avoid term lookup blocks
     const existingMarks = await db.select().from(marks);
 
     return NextResponse.json({
@@ -68,12 +67,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Safely get active term or default term ID from DB to avoid FK constraint failure
+    // Safely verify active or valid term
     const dbTerms = await db.select().from(terms);
     const activeTerm = dbTerms.find((t) => t.isActive) || dbTerms[0];
     const validTermId = activeTerm ? activeTerm.id : 1;
 
-    // Handle score removal/deletion
+    // Delete record if input is blank
     if (scoreVal === "" || scoreVal === null || scoreVal === undefined) {
       await db
         .delete(marks)
@@ -92,9 +91,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid score" }, { status: 400 });
     }
 
-    const formattedScore = String(numericScore.toFixed(2));
+    const formattedScore = numericScore.toFixed(2);
 
-    // Check if mark record already exists for this student + subject + component
     const existing = await db
       .select()
       .from(marks)
@@ -110,7 +108,7 @@ export async function POST(req: Request) {
       await db
         .update(marks)
         .set({ 
-          score: formattedScore as any, 
+          score: sql`${formattedScore}::numeric` as any, 
           updatedAt: new Date() 
         })
         .where(eq(marks.id, existing[0].id));
@@ -120,7 +118,7 @@ export async function POST(req: Request) {
         subjectId,
         termId: validTermId,
         component,
-        score: formattedScore as any,
+        score: sql`${formattedScore}::numeric` as any,
       });
     }
 
