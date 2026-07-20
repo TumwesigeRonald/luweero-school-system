@@ -1,153 +1,110 @@
 import { db } from "@/db";
-import { classes, marks, students, subjects, subjectTeachers } from "@/db/schema";
-import { getCurrentTeacher } from "@/lib/auth";
-import { and, asc, eq, sql, inArray } from "drizzle-orm";
-import { componentsFor } from "@/lib/grading";
-import { isAssigned } from "@/lib/assignments";
+import { classes, marks, students, subjects, terms } from "@/db/schema";
+import { eq, or, ilike, and } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
-// GET /api/marks?classId=..&termId=..&subjectId=..
 export async function GET(req: Request) {
-  const me = await getCurrentTeacher();
-  if (!me) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const url = new URL(req.url);
-  const classId = Number(url.searchParams.get("classId"));
-  const termId = Number(url.searchParams.get("termId"));
-  const subjectId = url.searchParams.get("subjectId")
-    ? Number(url.searchParams.get("subjectId"))
-    : null;
+  const { searchParams } = new URL(req.url);
+  const classId = searchParams.get("classId");
+  const termId = searchParams.get("termId");
+  const classNameParam = searchParams.get("className");
 
   if (!classId || !termId) {
-    return Response.json({ error: "classId and termId required" }, { status: 400 });
+    return NextResponse.json({ error: "Missing classId or termId" }, { status: 400 });
   }
 
-  const [klass] = await db.select().from(classes).where(eq(classes.id, classId)).limit(1);
-  if (!klass) return Response.json({ error: "Class not found" }, { status: 404 });
+  // 1. Fetch class details
+  const [targetClass] = await db.select().from(classes).where(eq(classes.id, Number(classId)));
+  const rawClassName = targetClass?.name || classNameParam || "";
+  const cleanClassName = rawClassName.split(" ")[0]; // Extracts "S1" from "S1 (O-LEVEL)"
 
-  const studs = await db
+  // 2. Fetch students by classId OR matching text name ("S1", "S1 (O-LEVEL)", etc.)
+  const studentList = await db
     .select()
     .from(students)
-    .where(eq(students.classId, classId))
-    .orderBy(asc(students.fullName));
+    .where(
+      or(
+        eq(students.classId, Number(classId)),
+        eq(students.class, rawClassName),
+        eq(students.class, cleanClassName),
+        ilike(students.class, `${cleanClassName}%`)
+      )
+    );
 
-  // Subjects available for this class level
-  let subs = await db
+  // 3. Fetch subjects matching level (e.g. O-LEVEL or A-LEVEL)
+  const subjectList = targetClass
+    ? await db.select().from(subjects).where(eq(subjects.level, targetClass.level))
+    : await db.select().from(subjects);
+
+  // 4. Fetch existing marks for these students
+  const markList = await db
     .select()
-    .from(subjects)
-    .where(sql`${subjects.level} = ${klass.level} OR ${subjects.level} = 'BOTH'`)
-    .orderBy(asc(subjects.name));
+    .from(marks)
+    .where(eq(marks.termId, Number(termId)));
 
-  // If not admin, restrict to only assigned subjects
-  if (me.role !== "admin") {
-    const assigned = await db
-      .select({ subjectId: subjectTeachers.subjectId })
-      .from(subjectTeachers)
-      .where(
-        and(
-          eq(subjectTeachers.teacherId, me.id),
-          eq(subjectTeachers.classId, classId),
-        ),
-      );
-    const allowedIds = new Set(assigned.map((a) => a.subjectId));
-    subs = subs.filter((s) => allowedIds.has(s.id));
-  }
+  const components = targetClass?.level === "A-LEVEL" ? ["P1", "P2"] : ["AOI1", "AOI2", "EOT"];
 
-  const studentIds = studs.map((s) => s.id);
-  const marksRows =
-    studentIds.length > 0
-      ? await db
-          .select()
-          .from(marks)
-          .where(
-            and(
-              eq(marks.termId, termId),
-              inArray(marks.studentId, studentIds),
-              ...(subjectId ? [eq(marks.subjectId, subjectId)] : []),
-            ),
-          )
-      : [];
-
-  return Response.json({
-    class: klass,
-    components: componentsFor(klass.level),
-    students: studs,
-    subjects: subs,
-    marks: marksRows,
+  return NextResponse.json({
+    class: targetClass,
+    students: studentList,
+    subjects: subjectList,
+    components,
+    marks: markList,
   });
 }
 
 export async function POST(req: Request) {
-  const me = await getCurrentTeacher();
-  if (!me) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const body = await req.json().catch(() => null);
-  const studentId = Number(body?.studentId);
-  const subjectId = Number(body?.subjectId);
-  const termId = Number(body?.termId);
-  const component = (body?.component ?? "").toString().trim();
-  const scoreRaw = body?.score;
+  try {
+    const body = await req.json();
+    const { studentId, subjectId, termId, component, score } = body;
 
-  if (!studentId || !subjectId || !termId || !component) {
-    return Response.json(
-      { error: "studentId, subjectId, termId, component required" },
-      { status: 400 },
-    );
-  }
-
-  // Authorization: teacher must be assigned to (subject, class) unless admin
-  if (me.role !== "admin") {
-    const [stu] = await db
-      .select({ classId: students.classId })
-      .from(students)
-      .where(eq(students.id, studentId))
-      .limit(1);
-    if (!stu) return Response.json({ error: "Student not found" }, { status: 404 });
-    const ok = await isAssigned(me.id, subjectId, stu.classId);
-    if (!ok) {
-      return Response.json(
-        { error: "You are not assigned to this subject in this class" },
-        { status: 403 },
-      );
+    if (!studentId || !subjectId || !termId || !component) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
-  }
 
-  if (scoreRaw === "" || scoreRaw === null || scoreRaw === undefined) {
-    await db
-      .delete(marks)
+    if (score === "" || score === null) {
+      await db
+        .delete(marks)
+        .where(
+          and(
+            eq(marks.studentId, Number(studentId)),
+            eq(marks.subjectId, Number(subjectId)),
+            eq(marks.termId, Number(termId)),
+            eq(marks.component, component)
+          )
+        );
+      return NextResponse.json({ success: true });
+    }
+
+    const existing = await db
+      .select()
+      .from(marks)
       .where(
         and(
-          eq(marks.studentId, studentId),
-          eq(marks.subjectId, subjectId),
-          eq(marks.termId, termId),
-          eq(marks.component, component),
-        ),
+          eq(marks.studentId, Number(studentId)),
+          eq(marks.subjectId, Number(subjectId)),
+          eq(marks.termId, Number(termId)),
+          eq(marks.component, component)
+        )
       );
-    return Response.json({ ok: true, deleted: true });
+
+    if (existing.length > 0) {
+      await db
+        .update(marks)
+        .set({ score: String(score), updatedAt: new Date() })
+        .where(eq(marks.id, existing[0].id));
+    } else {
+      await db.insert(marks).values({
+        studentId: Number(studentId),
+        subjectId: Number(subjectId),
+        termId: Number(termId),
+        component,
+        score: String(score),
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json({ error: "Failed to save mark" }, { status: 500 });
   }
-
-  const score = Number(scoreRaw);
-  if (Number.isNaN(score) || score < 0 || score > 100) {
-    return Response.json({ error: "Score must be 0-100" }, { status: 400 });
-  }
-
-  await db
-    .insert(marks)
-    .values({
-      studentId,
-      subjectId,
-      termId,
-      component,
-      score: score.toFixed(2),
-      enteredBy: me.id,
-    })
-    .onConflictDoUpdate({
-      target: [marks.studentId, marks.subjectId, marks.termId, marks.component],
-      set: {
-        score: score.toFixed(2),
-        enteredBy: me.id,
-        updatedAt: new Date(),
-      },
-    });
-
-  return Response.json({ ok: true });
 }
