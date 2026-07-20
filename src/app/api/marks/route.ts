@@ -7,7 +7,6 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const classId = searchParams.get("classId");
   const termId = searchParams.get("termId");
-  const classNameParam = searchParams.get("className");
 
   if (!classId || !termId) {
     return NextResponse.json({ error: "Missing classId or termId" }, { status: 400 });
@@ -16,31 +15,31 @@ export async function GET(req: Request) {
   const numClassId = Number(classId);
   const numTermId = Number(termId);
 
-  // 1. Fetch target class
-  const [targetClass] = await db.select().from(classes).where(eq(classes.id, numClassId));
+  // 1. Fetch class details
+  const [targetClass] = await db
+    .select()
+    .from(classes)
+    .where(eq(classes.id, numClassId));
 
-  // 2. Fetch all students and match by classId or class name in JavaScript (100% type-safe)
-  const rawClassName = targetClass?.name || classNameParam || "";
-  const cleanClassName = rawClassName.split(" ")[0].toLowerCase();
+  // 2. Fetch students directly by matching classId (using schema column)
+  const studentList = await db
+    .select()
+    .from(students)
+    .where(eq(students.classId, numClassId));
 
-  const allStudents = await db.select().from(students);
-  const studentList = allStudents.filter((s: any) => {
-    // Match by numerical classId if available
-    if (s.classId && Number(s.classId) === numClassId) return true;
-    // Match by class string field (e.g. "S1", "S1 (O-LEVEL)")
-    if (s.class) {
-      const sClass = String(s.class).toLowerCase();
-      return sClass.includes(cleanClassName);
-    }
-    return false;
-  });
-
-  // 3. Fetch subjects matching level
+  // 3. Fetch subjects matching class level (e.g., O-LEVEL or A-LEVEL)
   const subjectList = targetClass
-    ? await db.select().from(subjects).where(eq(subjects.level, targetClass.level))
+    ? await db
+        .select()
+        .from(subjects)
+        .where(
+          targetClass.level === "A-LEVEL"
+            ? eq(subjects.level, "A-LEVEL")
+            : eq(subjects.level, "O-LEVEL")
+        )
     : await db.select().from(subjects);
 
-  // 4. Fetch marks for active term
+  // 4. Fetch existing marks for the selected term
   const markList = await db
     .select()
     .from(marks)
