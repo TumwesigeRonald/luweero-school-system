@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { classes, marks, students, subjects, terms } from "@/db/schema";
-import { eq, or, ilike, and } from "drizzle-orm";
+import { classes, marks, students, subjects } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
@@ -13,34 +13,38 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing classId or termId" }, { status: 400 });
   }
 
-  // 1. Fetch class details
-  const [targetClass] = await db.select().from(classes).where(eq(classes.id, Number(classId)));
+  const numClassId = Number(classId);
+  const numTermId = Number(termId);
+
+  // 1. Fetch target class
+  const [targetClass] = await db.select().from(classes).where(eq(classes.id, numClassId));
+
+  // 2. Fetch all students and match by classId or class name in JavaScript (100% type-safe)
   const rawClassName = targetClass?.name || classNameParam || "";
-  const cleanClassName = rawClassName.split(" ")[0]; // Extracts "S1" from "S1 (O-LEVEL)"
+  const cleanClassName = rawClassName.split(" ")[0].toLowerCase();
 
-  // 2. Fetch students by classId OR matching text name ("S1", "S1 (O-LEVEL)", etc.)
-  const studentList = await db
-    .select()
-    .from(students)
-    .where(
-      or(
-        eq(students.classId, Number(classId)),
-        eq(students.class, rawClassName),
-        eq(students.class, cleanClassName),
-        ilike(students.class, `${cleanClassName}%`)
-      )
-    );
+  const allStudents = await db.select().from(students);
+  const studentList = allStudents.filter((s: any) => {
+    // Match by numerical classId if available
+    if (s.classId && Number(s.classId) === numClassId) return true;
+    // Match by class string field (e.g. "S1", "S1 (O-LEVEL)")
+    if (s.class) {
+      const sClass = String(s.class).toLowerCase();
+      return sClass.includes(cleanClassName);
+    }
+    return false;
+  });
 
-  // 3. Fetch subjects matching level (e.g. O-LEVEL or A-LEVEL)
+  // 3. Fetch subjects matching level
   const subjectList = targetClass
     ? await db.select().from(subjects).where(eq(subjects.level, targetClass.level))
     : await db.select().from(subjects);
 
-  // 4. Fetch existing marks for these students
+  // 4. Fetch marks for active term
   const markList = await db
     .select()
     .from(marks)
-    .where(eq(marks.termId, Number(termId)));
+    .where(eq(marks.termId, numTermId));
 
   const components = targetClass?.level === "A-LEVEL" ? ["P1", "P2"] : ["AOI1", "AOI2", "EOT"];
 
@@ -62,14 +66,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    const numStudentId = Number(studentId);
+    const numSubjectId = Number(subjectId);
+    const numTermId = Number(termId);
+
     if (score === "" || score === null) {
       await db
         .delete(marks)
         .where(
           and(
-            eq(marks.studentId, Number(studentId)),
-            eq(marks.subjectId, Number(subjectId)),
-            eq(marks.termId, Number(termId)),
+            eq(marks.studentId, numStudentId),
+            eq(marks.subjectId, numSubjectId),
+            eq(marks.termId, numTermId),
             eq(marks.component, component)
           )
         );
@@ -81,9 +89,9 @@ export async function POST(req: Request) {
       .from(marks)
       .where(
         and(
-          eq(marks.studentId, Number(studentId)),
-          eq(marks.subjectId, Number(subjectId)),
-          eq(marks.termId, Number(termId)),
+          eq(marks.studentId, numStudentId),
+          eq(marks.subjectId, numSubjectId),
+          eq(marks.termId, numTermId),
           eq(marks.component, component)
         )
       );
@@ -95,9 +103,9 @@ export async function POST(req: Request) {
         .where(eq(marks.id, existing[0].id));
     } else {
       await db.insert(marks).values({
-        studentId: Number(studentId),
-        subjectId: Number(subjectId),
-        termId: Number(termId),
+        studentId: numStudentId,
+        subjectId: numSubjectId,
+        termId: numTermId,
         component,
         score: String(score),
       });
