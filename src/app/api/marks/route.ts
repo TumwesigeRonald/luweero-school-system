@@ -15,37 +15,33 @@ export async function GET(req: Request) {
   const numClassId = Number(classId);
   const numTermId = Number(termId);
 
-  // 1. Fetch class details
+  // 1. Fetch class details by ID
   const [targetClass] = await db
     .select()
     .from(classes)
     .where(eq(classes.id, numClassId));
 
-  // 2. Fetch students directly by matching classId (using schema column)
+  // 2. Fetch students belonging to this class ID
   const studentList = await db
     .select()
     .from(students)
     .where(eq(students.classId, numClassId));
 
-  // 3. Fetch subjects matching class level (e.g., O-LEVEL or A-LEVEL)
-  const subjectList = targetClass
-    ? await db
-        .select()
-        .from(subjects)
-        .where(
-          targetClass.level === "A-LEVEL"
-            ? eq(subjects.level, "A-LEVEL")
-            : eq(subjects.level, "O-LEVEL")
-        )
-    : await db.select().from(subjects);
+  // 3. Fetch subjects according to class level
+  const isALevel = targetClass?.level === "A-LEVEL" || targetClass?.name?.startsWith("S5") || targetClass?.name?.startsWith("S6");
+  
+  const subjectList = await db
+    .select()
+    .from(subjects)
+    .where(eq(subjects.level, isALevel ? "A-LEVEL" : "O-LEVEL"));
 
-  // 4. Fetch existing marks for the selected term
+  // 4. Fetch existing marks for this term
   const markList = await db
     .select()
     .from(marks)
     .where(eq(marks.termId, numTermId));
 
-  const components = targetClass?.level === "A-LEVEL" ? ["P1", "P2"] : ["AOI1", "AOI2", "EOT"];
+  const components = isALevel ? ["P1", "P2"] : ["AOI1", "AOI2", "EOT"];
 
   return NextResponse.json({
     class: targetClass,
