@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import type { Class, Mark, Student, Subject, Term } from "@/db/schema";
@@ -36,7 +36,12 @@ export default function MarksClient({
   useEffect(() => {
     if (!classId || !termId) return;
     setLoading(true);
-    fetch(`/api/marks?classId=${classId}&termId=${termId}`)
+
+    const currentClassObj = classes.find((c) => String(c.id) === String(classId));
+    const rawClassName = currentClassObj?.name ?? "";
+    const cleanClassName = rawClassName.split(" ")[0];
+
+    fetch(`/api/marks?classId=${classId}&termId=${termId}&className=${encodeURIComponent(cleanClassName)}`)
       .then((r) => r.json())
       .then((d) => {
         setStudents(d.students ?? []);
