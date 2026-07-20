@@ -1,4 +1,6 @@
-﻿import { useState } from "react";
+﻿"use client";
+
+import { useState } from "react";
 import type { SchoolSettings } from "@/lib/settings";
 
 export default function SettingsClient({ initial }: { initial: SchoolSettings }) {
