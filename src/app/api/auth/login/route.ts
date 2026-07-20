@@ -1,75 +1,43 @@
 import { db } from "@/db";
-import { students, teachers } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { teachers } from "@/db/schema";
 import { createSession, verifyPassword } from "@/lib/auth";
-import {
-  createStudentSession,
-  verifyPassword as verifyStudentPassword,
-} from "@/lib/student-auth";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
+export async function POST(request: Request) {
+  try {
+    const { email, password } = await request.json();
 
-// Unified login: accepts either a teacher's EMAIL or a student's ADMISSION NUMBER.
-// We try teacher first (matching email exactly), then fall back to student
-// (matching admission number, case-insensitive).
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
-  const identifier = (body?.email ?? body?.identifier ?? "").toString().trim();
-  const password = (body?.password ?? "").toString();
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: "Email and password are required" },
+        { status: 400 }
+      );
+    }
 
-  if (!identifier || !password) {
-    return Response.json(
-      { error: "Email/Admission No. and password are required" },
-      { status: 400 },
-    );
-  }
-
-  // ------ Try teacher (email match) ------
-  if (identifier.includes("@")) {
-    const email = identifier.toLowerCase();
     const [user] = await db
       .select()
       .from(teachers)
       .where(eq(teachers.email, email))
       .limit(1);
-    if (user && user.isActive) {
+
+    if (user && user.isActive && user.passwordHash) {
       const ok = await verifyPassword(password, user.passwordHash);
+
       if (ok) {
         await createSession(user.id);
-        return Response.json({
-          ok: true,
-          userType: "teacher",
-          user: { id: user.id, fullName: user.fullName, role: user.role },
-          redirectTo: "/dashboard",
-        });
+        return NextResponse.json({ success: true, role: user.role });
       }
     }
-    // Fall through -> maybe it's actually a student using an email-like admNo
+
+    return NextResponse.json(
+      { error: "Invalid email or password" },
+      { status: 401 }
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
-
-  // ------ Try student (admission number match) ------
-  const [student] = await db
-    .select()
-    .from(students)
-    .where(eq(students.admissionNo, identifier))
-    .limit(1);
-
-  if (student && student.passwordHash) {
-    const ok = await verifyStudentPassword(password, student.passwordHash);
-    if (ok) {
-      await createStudentSession(student.id);
-      return Response.json({
-        ok: true,
-        userType: "student",
-        user: { id: student.id, fullName: student.fullName },
-        redirectTo: "/portal",
-      });
-    }
-  }
-
-  // Nothing matched
-  return Response.json(
-    { error: "Invalid email/admission number or password" },
-    { status: 401 },
-  );
 }

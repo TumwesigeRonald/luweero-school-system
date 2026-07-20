@@ -1,20 +1,67 @@
 import { db } from "@/db";
 import { subjects } from "@/db/schema";
-import { getCurrentTeacher } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+// GET /api/subjects/[id]
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const me = await getCurrentTeacher();
-  if (!me) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  if (me.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
-  const { id } = await params;
-  const subjectId = Number(id);
-  if (!subjectId) return Response.json({ error: "Invalid id" }, { status: 400 });
-  await db.delete(subjects).where(eq(subjects.id, subjectId));
-  return Response.json({ ok: true });
+  try {
+    const { id } = await params;
+    const subjectId = parseInt(id, 10);
+
+    const data = await db
+      .select()
+      .from(subjects)
+      .where(eq(subjects.id, subjectId));
+
+    if (!data.length) {
+      return NextResponse.json({ error: "Subject not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(data[0]);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to fetch subject" }, { status: 500 });
+  }
+}
+
+// PATCH /api/subjects/[id]
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const subjectId = parseInt(id, 10);
+    const body = await request.json();
+
+    const updated = await db
+      .update(subjects)
+      .set(body)
+      .where(eq(subjects.id, subjectId))
+      .returning();
+
+    return NextResponse.json(updated[0]);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to update subject" }, { status: 500 });
+  }
+}
+
+// DELETE /api/subjects/[id]
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const subjectId = parseInt(id, 10);
+
+    await db.delete(subjects).where(eq(subjects.id, subjectId));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to delete subject" }, { status: 500 });
+  }
 }

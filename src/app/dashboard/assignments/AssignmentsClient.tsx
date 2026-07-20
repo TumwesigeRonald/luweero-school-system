@@ -1,170 +1,175 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
-import type { Class, Subject, SubjectTeacher } from "@/db/schema";
+import type { InferSelectModel } from "drizzle-orm";
+import { classes, subjects, subjectTeachers } from "@/db/schema";
 
-type TeacherRow = { id: number; fullName: string; email: string };
+type Class = InferSelectModel<typeof classes>;
+type Subject = InferSelectModel<typeof subjects>;
+type SubjectTeacher = InferSelectModel<typeof subjectTeachers>;
+
+type TeacherRow = { id: number; fullName: string; email: string | null };
+
+interface AssignmentsClientProps {
+  initialClasses: Class[];
+  initialSubjects: Subject[];
+  initialTeachers: TeacherRow[];
+  initialAssignments: SubjectTeacher[];
+}
 
 export default function AssignmentsClient({
-  classes,
-  subjects,
-  teachers,
-  assignments: initial,
-}: {
-  classes: Class[];
-  subjects: Subject[];
-  teachers: TeacherRow[];
-  assignments: SubjectTeacher[];
-}) {
-  const [rows, setRows] = useState<SubjectTeacher[]>(initial);
-  const [classId, setClassId] = useState<string>(classes[0]?.id ? String(classes[0].id) : "");
-  const [subjectId, setSubjectId] = useState<string>("");
-  const [teacherId, setTeacherId] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  initialClasses,
+  initialSubjects,
+  initialTeachers,
+  initialAssignments,
+}: AssignmentsClientProps) {
+  const [assignments, setAssignments] = useState<SubjectTeacher[]>(initialAssignments);
+  const [selectedClass, setSelectedClass] = useState<string>("");
+  const [selectedSubject, setSelectedSubject] = useState<string>("");
+  const [selectedTeacher, setSelectedTeacher] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const currentClass = classes.find((c) => String(c.id) === classId);
-  const availableSubjects = subjects.filter(
-    (s) => !currentClass || s.level === currentClass.level || s.level === "BOTH",
-  );
-
-  const teacherById = useMemo(() => {
-    const m: Record<number, TeacherRow> = {};
-    for (const t of teachers) m[t.id] = t;
-    return m;
-  }, [teachers]);
-  const subjectById = useMemo(() => {
-    const m: Record<number, Subject> = {};
-    for (const s of subjects) m[s.id] = s;
-    return m;
-  }, [subjects]);
-
-  const forClass = rows.filter((r) => String(r.classId) === classId);
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaving(true);
-    const res = await fetch("/api/assignments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subjectId: Number(subjectId),
-        teacherId: Number(teacherId),
-        classId: Number(classId),
-      }),
+  const filteredAssignments = useMemo(() => {
+    return assignments.filter((item) => {
+      if (selectedClass && String(item.classId) !== selectedClass) return false;
+      if (selectedSubject && String(item.subjectId) !== selectedSubject) return false;
+      if (selectedTeacher && String(item.teacherId) !== selectedTeacher) return false;
+      return true;
     });
-    const data = await res.json();
-    if (!res.ok) setError(data.error ?? "Failed");
-    else setRows([...rows, data.assignment]);
-    setSaving(false);
-  }
+  }, [assignments, selectedClass, selectedSubject, selectedTeacher]);
 
-  async function remove(id: number) {
-    if (!confirm("Remove this assignment?")) return;
-    const res = await fetch(`/api/assignments?id=${id}`, { method: "DELETE" });
-    if (res.ok) setRows(rows.filter((r) => r.id !== id));
-    else alert("Failed to remove");
-  }
+  const handleAssign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClass || !selectedSubject || !selectedTeacher) {
+      setMessage({ type: "error", text: "Please select Class, Subject, and Teacher." });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classId: Number(selectedClass),
+          subjectId: Number(selectedSubject),
+          teacherId: Number(selectedTeacher),
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to assign teacher");
+      }
+
+      const newAssignment = await res.json();
+      setAssignments((prev) => [...prev, newAssignment]);
+      setMessage({ type: "success", text: "Teacher assigned successfully!" });
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "An error occurred." });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <div>
-      <div className="flex flex-wrap gap-3 mb-4 items-end">
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Subject & Teacher Assignments</h1>
+
+      {message && (
+        <div
+          className={`p-4 rounded-md ${
+            message.type === "success" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+          }`}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <form onSubmit={handleAssign} className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 rounded shadow">
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Class</label>
+          <label className="block text-sm font-medium mb-1">Class</label>
           <select
-            value={classId}
-            onChange={(e) => setClassId(e.target.value)}
-            className="border rounded-lg px-3 py-2 border-slate-300"
+            value={selectedClass}
+            onChange={(e) => setSelectedClass(e.target.value)}
+            className="w-full border p-2 rounded"
           >
-            {classes.map((c) => (
+            <option value="">Select Class</option>
+            {initialClasses.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
         </div>
-      </div>
 
-      <form
-        onSubmit={add}
-        className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap gap-3 items-end mb-4"
-      >
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-xs text-slate-500 mb-1">Subject</label>
+        <div>
+          <label className="block text-sm font-medium mb-1">Subject</label>
           <select
-            required
-            value={subjectId}
-            onChange={(e) => setSubjectId(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 border-slate-300"
+            value={selectedSubject}
+            onChange={(e) => setSelectedSubject(e.target.value)}
+            className="w-full border p-2 rounded"
           >
-            <option value="">— Choose subject —</option>
-            {availableSubjects.map((s) => (
+            <option value="">Select Subject</option>
+            {initialSubjects.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} {s.category ? `(${s.category})` : ""}
+                {s.name} ({s.code})
               </option>
             ))}
           </select>
         </div>
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-xs text-slate-500 mb-1">Teacher</label>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Teacher</label>
           <select
-            required
-            value={teacherId}
-            onChange={(e) => setTeacherId(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 border-slate-300"
+            value={selectedTeacher}
+            onChange={(e) => setSelectedTeacher(e.target.value)}
+            className="w-full border p-2 rounded"
           >
-            <option value="">— Choose teacher —</option>
-            {teachers.map((t) => (
+            <option value="">Select Teacher</option>
+            {initialTeachers.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.fullName}
               </option>
             ))}
           </select>
         </div>
-        <button
-          disabled={saving}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2 font-medium"
-        >
-          {saving ? "Adding..." : "+ Assign"}
-        </button>
-        {error && <div className="text-xs text-red-600 w-full">{error}</div>}
+
+        <div className="flex items-end">
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isSubmitting ? "Assigning..." : "Assign Teacher"}
+          </button>
+        </div>
       </form>
 
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-600">
+      <div className="bg-white rounded shadow overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3">Subject</th>
-              <th className="px-4 py-3">Teacher</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned Teacher</th>
             </tr>
           </thead>
-          <tbody>
-            {forClass.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="text-center text-slate-400 py-8">
-                  No assignments for this class yet.
-                </td>
-              </tr>
-            ) : (
-              forClass.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-medium">
-                    {subjectById[r.subjectId]?.name ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">{teacherById[r.teacherId]?.fullName ?? "—"}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => remove(r.id)}
-                      className="text-xs bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1 rounded font-medium"
-                    >
-                      Remove
-                    </button>
-                  </td>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {filteredAssignments.map((a) => {
+              const cls = initialClasses.find((c) => c.id === a.classId);
+              const sub = initialSubjects.find((s) => s.id === a.subjectId);
+              const tch = initialTeachers.find((t) => t.id === a.teacherId);
+              return (
+                <tr key={a.id}>
+                  <td className="px-6 py-4 whitespace-nowrap">{cls?.name || a.classId}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">{sub?.name || a.subjectId}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">{tch?.fullName || a.teacherId}</td>
                 </tr>
-              ))
-            )}
+              );
+            })}
           </tbody>
         </table>
       </div>

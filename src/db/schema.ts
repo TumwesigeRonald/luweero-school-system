@@ -96,12 +96,35 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Sessions Table
+// Sessions Table (Teacher/Admin Sessions)
 export const sessions = pgTable("sessions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id"),
   teacherId: integer("teacher_id"),
   token: text("token").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Student Sessions Table
+export const studentSessions = pgTable("student_sessions", {
+  id: serial("id").primaryKey(),
+  studentId: integer("student_id")
+    .notNull()
+    .references(() => students.id, { onDelete: "cascade" }),
+  token: text("token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Student Terms Table
+export const studentTerms = pgTable("student_terms", {
+  id: serial("id").primaryKey(),
+  studentId: integer("student_id")
+    .notNull()
+    .references(() => students.id, { onDelete: "cascade" }),
+  termId: integer("term_id")
+    .notNull()
+    .references(() => terms.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow(),
 });
