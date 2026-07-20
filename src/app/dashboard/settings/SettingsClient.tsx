@@ -1,6 +1,4 @@
-"use client";
-
-import { useState } from "react";
+﻿import { useState } from "react";
 import type { SchoolSettings } from "@/lib/settings";
 
 export default function SettingsClient({ initial }: { initial: SchoolSettings }) {
@@ -18,7 +16,7 @@ export default function SettingsClient({ initial }: { initial: SchoolSettings })
       body: JSON.stringify(form),
     });
     if (res.ok) {
-      setMsg("✅ Saved. Refresh the page to see changes across the app.");
+      setMsg("✅ Saved! Refresh the page to see changes across the app.");
     } else {
       setMsg("❌ Failed to save");
     }
@@ -31,6 +29,16 @@ export default function SettingsClient({ initial }: { initial: SchoolSettings })
     ["schoolPhone", "Phone"],
     ["schoolEmail", "Email"],
     ["schoolMotto", "Motto"],
+    [
+      "activeTerm",
+      "Active Term (e.g. Term 1, Term 2, Term 3)",
+      "Term 1",
+    ],
+    [
+      "academicYear",
+      "Academic Year",
+      "2026",
+    ],
     [
       "schoolLogoUrl",
       "Logo URL (paste an image link, e.g. from Imgur)",
@@ -52,7 +60,7 @@ export default function SettingsClient({ initial }: { initial: SchoolSettings })
           </label>
           <input
             type="text"
-            value={form[key]}
+            value={form[key] || ""}
             onChange={(e) => setForm({ ...form, [key]: e.target.value })}
             placeholder={placeholder}
             className="w-full border rounded-lg px-3 py-2 border-slate-300"

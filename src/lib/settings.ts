@@ -1,4 +1,4 @@
-import { db } from "@/db";
+﻿import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { inArray } from "drizzle-orm";
 
@@ -10,6 +10,8 @@ export const SETTING_KEYS = [
   "schoolMotto",
   "schoolLogoUrl",
   "signupCode",
+  "activeTerm",
+  "academicYear",
 ] as const;
 
 export type SchoolSettings = {
@@ -20,6 +22,8 @@ export type SchoolSettings = {
   schoolMotto: string;
   schoolLogoUrl: string;
   signupCode: string;
+  activeTerm: string;
+  academicYear: string;
 };
 
 const DEFAULTS: SchoolSettings = {
@@ -31,6 +35,8 @@ const DEFAULTS: SchoolSettings = {
   schoolMotto: "BE KNOWN BY DEEDS",
   schoolLogoUrl: "https://i.imgur.com/No15rUh.jpeg",
   signupCode: "",
+  activeTerm: "Term 1",
+  academicYear: "2026",
 };
 
 export async function getSchoolSettings(): Promise<SchoolSettings> {
