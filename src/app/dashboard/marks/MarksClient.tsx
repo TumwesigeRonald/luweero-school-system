@@ -39,9 +39,8 @@ export default function MarksClient({
 
     const currentClassObj = classes.find((c) => String(c.id) === String(classId));
     const rawClassName = currentClassObj?.name ?? "";
-    const cleanClassName = rawClassName.split(" ")[0];
 
-    fetch(`/api/marks?classId=${classId}&termId=${termId}&className=${encodeURIComponent(cleanClassName)}`)
+    fetch(`/api/marks?classId=${classId}&termId=${termId}&className=${encodeURIComponent(rawClassName)}`)
       .then((r) => r.json())
       .then((d) => {
         setStudents(d.students ?? []);
