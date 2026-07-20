@@ -18,14 +18,17 @@ export default function MarksClient({
   classes = [],
   terms = [],
 }: {
-  classes: Class[];
-  terms: Term[];
+  classes?: Class[];
+  terms?: Term[];
 }) {
+  const safeClasses = classes || [];
+  const safeTerms = terms || [];
+
   const [classId, setClassId] = useState<string>(
-    classes[0]?.id ? String(classes[0].id) : "1"
+    safeClasses[0]?.id ? String(safeClasses[0].id) : "1"
   );
   
-  const activeTerm = terms.find((t) => t.isActive) ?? terms[0];
+  const activeTerm = safeTerms.find((t) => t.isActive) ?? safeTerms[0];
   const [termId, setTermId] = useState<string>(
     activeTerm?.id ? String(activeTerm.id) : "1"
   );
@@ -40,10 +43,12 @@ export default function MarksClient({
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
 
   useEffect(() => {
-    if (!classId || !termId) return;
+    if (!classId) return;
     setLoading(true);
 
-    fetch(`/api/marks?classId=${classId}&termId=${termId}`)
+    const queryTerm = termId || "1";
+
+    fetch(`/api/marks?classId=${classId}&termId=${queryTerm}`)
       .then((r) => r.json())
       .then((d) => {
         const fetchedStudents = d.students ?? [];
@@ -99,7 +104,7 @@ export default function MarksClient({
         body: JSON.stringify({
           studentId,
           subjectId: subjId,
-          termId: Number(termId),
+          termId: Number(termId || 1),
           component,
           score: value,
         }),
@@ -125,7 +130,7 @@ export default function MarksClient({
             id: -Math.floor(Math.random() * 1e6),
             studentId,
             subjectId: subjId,
-            termId: Number(termId),
+            termId: Number(termId || 1),
             component,
             score: numVal.toFixed(2),
             enteredBy: null,
@@ -197,12 +202,10 @@ export default function MarksClient({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
         <select
           value={classId}
-          onChange={(e) => {
-            setClassId(e.target.value);
-          }}
+          onChange={(e) => setClassId(e.target.value)}
           className="border rounded-lg px-3 py-2 border-slate-300 bg-white"
         >
-          {classes.map((c) => (
+          {safeClasses.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} ({c.level})
             </option>
@@ -214,11 +217,15 @@ export default function MarksClient({
           onChange={(e) => setTermId(e.target.value)}
           className="border rounded-lg px-3 py-2 border-slate-300 bg-white"
         >
-          {terms.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} {t.academicYear} {t.isActive ? "(active)" : ""}
-            </option>
-          ))}
+          {safeTerms.length > 0 ? (
+            safeTerms.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} {t.academicYear} {t.isActive ? "(active)" : ""}
+              </option>
+            ))
+          ) : (
+            <option value="1">Term 1</option>
+          )}
         </select>
 
         <select
@@ -237,7 +244,7 @@ export default function MarksClient({
 
       {loading ? (
         <div className="text-slate-500 p-8 text-center bg-white rounded-xl shadow-sm">
-          Loading...
+          Loading students...
         </div>
       ) : students.length === 0 ? (
         <div className="text-slate-500 p-8 text-center bg-white rounded-xl shadow-sm">
