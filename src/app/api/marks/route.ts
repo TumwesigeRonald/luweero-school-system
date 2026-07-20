@@ -7,7 +7,6 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const classIdParam = searchParams.get("classId");
-    const termIdParam = searchParams.get("termId");
 
     if (!classIdParam) {
       return NextResponse.json({ error: "classId required" }, { status: 400 });
@@ -67,11 +66,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    // Lookup active term dynamically
     const dbTerms = await db.select().from(terms);
     const activeTerm = dbTerms.find((t) => t.isActive) || dbTerms[0];
     const validTermId = activeTerm ? activeTerm.id : 1;
 
-    // Handle deletion if score is blank
+    // Delete mark if score is empty
     if (scoreVal === "" || scoreVal === null || scoreVal === undefined) {
       await db
         .delete(marks)
@@ -90,9 +90,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid score" }, { status: 400 });
     }
 
-    // Format to 2 decimal places as standard string
-    const formattedScore = numericScore.toFixed(2);
+    const scoreString = numericScore.toFixed(2);
 
+    // Existing check & update/insert sequence
     const existing = await db
       .select()
       .from(marks)
@@ -107,9 +107,9 @@ export async function POST(req: Request) {
     if (existing.length > 0) {
       await db
         .update(marks)
-        .set({ 
-          score: formattedScore as any, 
-          updatedAt: new Date() 
+        .set({
+          score: scoreString,
+          updatedAt: new Date(),
         })
         .where(eq(marks.id, existing[0].id));
     } else {
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
         subjectId,
         termId: validTermId,
         component,
-        score: formattedScore as any,
+        score: scoreString,
       });
     }
 
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("Save Mark Error Details:", error);
     return NextResponse.json(
-      { error: error?.message || "Failed to save mark" }, 
+      { error: error?.message || "Failed to save mark" },
       { status: 500 }
     );
   }
