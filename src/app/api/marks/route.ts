@@ -16,7 +16,6 @@ export async function POST(req: Request) {
     }
 
     if (score === "" || score === null || score === undefined) {
-      // Delete score if empty
       await db
         .delete(marks)
         .where(
@@ -27,15 +26,16 @@ export async function POST(req: Request) {
             eq(marks.component, component)
           )
         );
-      return NextResponse.json({ success: true, deleted: true });
+      return NextResponse.json({ success: true });
     }
 
-    const numericScore = parseFloat(score);
+    const numericScore = parseFloat(String(score));
     if (isNaN(numericScore)) {
       return NextResponse.json({ error: "Invalid score" }, { status: 400 });
     }
 
-    // Check if record exists
+    const formattedScore = numericScore.toFixed(2);
+
     const existing = await db
       .select()
       .from(marks)
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     if (existing.length > 0) {
       await db
         .update(marks)
-        .set({ score: numericScore.toFixed(2), updatedAt: new Date() })
+        .set({ score: formattedScore, updatedAt: new Date() })
         .where(eq(marks.id, existing[0].id));
     } else {
       await db.insert(marks).values({
@@ -59,13 +59,13 @@ export async function POST(req: Request) {
         subjectId,
         termId,
         component,
-        score: numericScore.toFixed(2),
+        score: formattedScore,
       });
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Save Error:", error);
+    console.error("Save Mark Error:", error);
     return NextResponse.json({ error: "Failed to save mark" }, { status: 500 });
   }
 }

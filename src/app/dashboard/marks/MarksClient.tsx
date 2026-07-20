@@ -15,8 +15,8 @@ import {
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 export default function MarksClient({
-  classes,
-  terms,
+  classes = [],
+  terms = [],
 }: {
   classes: Class[];
   terms: Term[];
@@ -24,10 +24,12 @@ export default function MarksClient({
   const [classId, setClassId] = useState<string>(
     classes[0]?.id ? String(classes[0].id) : "1"
   );
+  
   const activeTerm = terms.find((t) => t.isActive) ?? terms[0];
   const [termId, setTermId] = useState<string>(
     activeTerm?.id ? String(activeTerm.id) : "1"
   );
+
   const [subjectId, setSubjectId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
@@ -44,22 +46,27 @@ export default function MarksClient({
     fetch(`/api/marks?classId=${classId}&termId=${termId}`)
       .then((r) => r.json())
       .then((d) => {
-        setStudents(d.students ?? []);
-        setSubjects(d.subjects ?? []);
+        const fetchedStudents = d.students ?? [];
+        const fetchedSubjects = d.subjects ?? [];
+        
+        setStudents(fetchedStudents);
+        setSubjects(fetchedSubjects);
         setComponents(d.components ?? []);
         setMarks(d.marks ?? []);
         setSelectedClass(d.class ?? null);
 
-        if (d.subjects && d.subjects.length > 0) {
-          // If current subject selection is invalid or empty, pick first available
-          if (!subjectId || !d.subjects.some((s: Subject) => String(s.id) === subjectId)) {
-            setSubjectId(String(d.subjects[0].id));
-          }
+        if (fetchedSubjects.length > 0) {
+          setSubjectId((prev) => {
+            if (prev && fetchedSubjects.some((s: Subject) => String(s.id) === prev)) {
+              return prev;
+            }
+            return String(fetchedSubjects[0].id);
+          });
         } else {
           setSubjectId("");
         }
       })
-      .catch((err) => console.error("Error fetching marks data:", err))
+      .catch((err) => console.error("Error fetching marks:", err))
       .finally(() => setLoading(false));
   }, [classId, termId]);
 
@@ -70,7 +77,9 @@ export default function MarksClient({
 
   const marksBySubjectStudentComp = useMemo(() => {
     const m: Record<string, Mark> = {};
-    for (const mk of marks) m[`${mk.subjectId}-${mk.studentId}-${mk.component}`] = mk;
+    for (const mk of marks) {
+      m[`${mk.subjectId}-${mk.studentId}-${mk.component}`] = mk;
+    }
     return m;
   }, [marks]);
 
@@ -82,6 +91,7 @@ export default function MarksClient({
   ) {
     const key = `${subjId}-${studentId}-${component}`;
     setSaveStates((s) => ({ ...s, [key]: "saving" }));
+
     try {
       const res = await fetch("/api/marks", {
         method: "POST",
@@ -94,7 +104,11 @@ export default function MarksClient({
           score: value,
         }),
       });
-      if (!res.ok) throw new Error("save failed");
+
+      if (!res.ok) throw new Error("Save failed");
+
+      const numVal = parseFloat(value);
+
       setMarks((prev) => {
         const filtered = prev.filter(
           (m) =>
@@ -104,7 +118,7 @@ export default function MarksClient({
               m.component === component
             )
         );
-        if (value === "") return filtered;
+        if (value === "" || isNaN(numVal)) return filtered;
         return [
           ...filtered,
           {
@@ -113,36 +127,39 @@ export default function MarksClient({
             subjectId: subjId,
             termId: Number(termId),
             component,
-            score: Number(value).toFixed(2),
+            score: numVal.toFixed(2),
             enteredBy: null,
             updatedAt: new Date(),
           },
         ];
       });
+
       setSaveStates((s) => ({ ...s, [key]: "saved" }));
-      setTimeout(
-        () =>
-          setSaveStates((s) => {
-            const n = { ...s };
-            delete n[key];
-            return n;
-          }),
-        1000
-      );
+      setTimeout(() => {
+        setSaveStates((s) => {
+          const n = { ...s };
+          delete n[key];
+          return n;
+        });
+      }, 1000);
     } catch {
       setSaveStates((s) => ({ ...s, [key]: "error" }));
     }
   }
 
+  function parseVal(m?: Mark): number | null {
+    if (!m || m.score == null || m.score === "") return null;
+    const n = parseFloat(String(m.score));
+    return isNaN(n) ? null : n;
+  }
+
   function computeStats(studentId: number, subj: Subject) {
     const isALevel = selectedClass?.level === "A-LEVEL";
+
     if (isALevel) {
-      const p1 = marksBySubjectStudentComp[`${subj.id}-${studentId}-P1`];
-      const p2 = marksBySubjectStudentComp[`${subj.id}-${studentId}-P2`];
-      const final = computeALevelFinal(
-        p1 ? Number(p1.score) : null,
-        p2 ? Number(p2.score) : null
-      );
+      const p1 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-P1`]);
+      const p2 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-P2`]);
+      const final = computeALevelFinal(p1, p2);
       if (final == null) return { as: null, fa: null, final: null, grade: "-" };
       const g =
         subj.category === "SUBSIDIARY" || subj.category === "GENERAL"
@@ -150,20 +167,16 @@ export default function MarksClient({
           : uacePrincipalGrade(final);
       return { as: null, fa: null, final, grade: g.grade };
     }
-    const aoi1 = marksBySubjectStudentComp[`${subj.id}-${studentId}-AOI1`];
-    const aoi2 = marksBySubjectStudentComp[`${subj.id}-${studentId}-AOI2`];
-    const eot = marksBySubjectStudentComp[`${subj.id}-${studentId}-EOT`];
-    const as = computeAS(
-      aoi1 ? Number(aoi1.score) : null,
-      aoi2 ? Number(aoi2.score) : null
-    );
+
+    const aoi1 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-AOI1`]);
+    const aoi2 = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-AOI2`]);
+    const eot = parseVal(marksBySubjectStudentComp[`${subj.id}-${studentId}-EOT`]);
+
+    const as = computeAS(aoi1, aoi2);
     const fa = computeFA(as);
-    const final = computeOLevelFinal(
-      aoi1 ? Number(aoi1.score) : null,
-      aoi2 ? Number(aoi2.score) : null,
-      eot ? Number(eot.score) : null
-    );
+    const final = computeOLevelFinal(aoi1, aoi2, eot);
     const grade = final != null ? cbcGrade(final).grade : "-";
+
     return { as, fa, final, grade };
   }
 
@@ -186,7 +199,6 @@ export default function MarksClient({
           value={classId}
           onChange={(e) => {
             setClassId(e.target.value);
-            setSubjectId("");
           }}
           className="border rounded-lg px-3 py-2 border-slate-300 bg-white"
         >
@@ -196,6 +208,7 @@ export default function MarksClient({
             </option>
           ))}
         </select>
+
         <select
           value={termId}
           onChange={(e) => setTermId(e.target.value)}
@@ -207,6 +220,7 @@ export default function MarksClient({
             </option>
           ))}
         </select>
+
         <select
           value={subjectId}
           onChange={(e) => setSubjectId(e.target.value)}
@@ -280,8 +294,7 @@ export default function MarksClient({
                     </>
                   )}
                   <th className="px-3 py-3 text-center bg-slate-100 font-semibold">
-                    FINAL{" "}
-                    <div className="text-[10px] font-normal">/ 100</div>
+                    FINAL <div className="text-[10px] font-normal">/ 100</div>
                   </th>
                   <th className="px-3 py-3 text-center bg-slate-100 font-semibold">
                     Grade
@@ -304,7 +317,7 @@ export default function MarksClient({
                         const key = `${currentSubject.id}-${st.id}-${c}`;
                         const m = marksBySubjectStudentComp[key];
                         const state = saveStates[key];
-                        const val = m ? Number(m.score) : "";
+                        const val = m ? String(m.score) : "";
                         return (
                           <td key={c} className="px-2 py-1 text-center">
                             <input
@@ -312,7 +325,7 @@ export default function MarksClient({
                               min={0}
                               max={cfg.max}
                               step={cfg.step}
-                              defaultValue={val === "" ? "" : String(val)}
+                              defaultValue={val}
                               key={`${key}-${val}`}
                               onBlur={(e) =>
                                 updateScore(
@@ -337,10 +350,10 @@ export default function MarksClient({
                       })}
                       {isCbc && (
                         <>
-                          <td className="px-3 py-2 text-center bg-slate-50 text-xs font-mono">
+                          <td className="px-3 py-2 text-center bg-slate-50 text-xs font-mono font-medium">
                             {stats.as != null ? stats.as.toFixed(2) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-center bg-slate-50 text-xs font-mono">
+                          <td className="px-3 py-2 text-center bg-slate-50 text-xs font-mono font-medium">
                             {stats.fa != null ? stats.fa.toFixed(2) : "—"}
                           </td>
                         </>
